@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "include/mmio.h"
+#include "include/CSR_Matrix.h"
 #include "include/HLL_Matrix.h"
 
 static inline void safe_malloc_check(void* ptr, const char* msg) {
@@ -10,70 +10,9 @@ static inline void safe_malloc_check(void* ptr, const char* msg) {
     }
 }
 
-#define DEFAULT_HACKSIZE 32
-
-HLLMatrix* load_matrix_market_to_hll(const char* filename) {
-    FILE* f = fopen(filename, "r");
-    if (!f) {
-        perror("Error opening file");
-        return NULL;
-    }
-
-    MM_typecode matcode;
-    if (mm_read_banner(f, &matcode) != 0 ||
-        !mm_is_matrix(matcode) ||
-        !mm_is_coordinate(matcode) ||
-        (!mm_is_real(matcode) && !mm_is_pattern(matcode))) {
-        printf("Unsupported Matrix Market format\n");
-        fclose(f);
-        return NULL;
-    }
-
-    int M, N, NZ;
-    mm_read_mtx_crd_size(f, &M, &N, &NZ);
-
-    int is_pattern = mm_is_pattern(matcode);
-    int is_symmetric = mm_is_symmetric(matcode);
-
-    int capacity = is_symmetric ? 2 * NZ : NZ;
-
-    int* rows = malloc(sizeof(int) * capacity);
-    int* cols = malloc(sizeof(int) * capacity);
-    double* vals = malloc(sizeof(double) * capacity);
-    safe_malloc_check(rows, "malloc rows");
-    safe_malloc_check(cols, "malloc cols");
-    safe_malloc_check(vals, "malloc vals");
-
-    int* row_counts = calloc(M, sizeof(int));
-    safe_malloc_check(row_counts, "malloc row_counts");
-
-    int count = 0;
-    for (int i = 0; i < NZ; ++i) {
-        int r, c;
-        double v = 1.0;
-        if (is_pattern) {
-            fscanf(f, "%d %d", &r, &c);
-        } else {
-            fscanf(f, "%d %d %lf", &r, &c, &v);
-        }
-        r--; c--;
-        rows[count] = r;
-        cols[count] = c;
-        vals[count] = v;
-        row_counts[r]++;
-        count++;
-
-        if (is_symmetric && r != c) {
-            rows[count] = c;
-            cols[count] = r;
-            vals[count] = v;
-            row_counts[c]++;
-            count++;
-        }
-    }
-    fclose(f);
-
-    int hacksize = DEFAULT_HACKSIZE;
+HLLMatrix* convert_csr_to_hll(const CSRMatrix* csr, int hacksize) {
+    int M = csr->M;
+    int N = csr->N;
     int num_blocks = (M + hacksize - 1) / hacksize;
 
     HLLMatrix* hll = malloc(sizeof(HLLMatrix));
@@ -86,31 +25,6 @@ HLLMatrix* load_matrix_market_to_hll(const char* filename) {
     hll->blocks = malloc(num_blocks * sizeof(HLLBlock));
     safe_malloc_check(hll->blocks, "malloc HLL blocks");
 
-    int** temp_cols = calloc(M, sizeof(int*));
-    double** temp_vals = calloc(M, sizeof(double*));
-    int* row_filled = calloc(M, sizeof(int));
-    safe_malloc_check(temp_cols, "malloc temp_cols");
-    safe_malloc_check(temp_vals, "malloc temp_vals");
-    safe_malloc_check(row_filled, "malloc row_filled");
-
-    for (int i = 0; i < count; ++i) {
-        int r = rows[i];
-        if (!temp_cols[r]) {
-            temp_cols[r] = malloc(row_counts[r] * sizeof(int));
-            temp_vals[r] = malloc(row_counts[r] * sizeof(double));
-            safe_malloc_check(temp_cols[r], "malloc temp_cols[r]");
-            safe_malloc_check(temp_vals[r], "malloc temp_vals[r]");
-        }
-        temp_cols[r][row_filled[r]] = cols[i];
-        temp_vals[r][row_filled[r]] = vals[i];
-        row_filled[r]++;
-    }
-
-    free(rows);
-    free(cols);
-    free(vals);
-    free(row_counts);
-
     for (int b = 0; b < num_blocks; ++b) {
         int start = b * hacksize;
         int end = (b + 1) * hacksize;
@@ -119,7 +33,8 @@ HLLMatrix* load_matrix_market_to_hll(const char* filename) {
 
         int max_nz = 0;
         for (int i = start; i < end; ++i) {
-            if (row_filled[i] > max_nz) max_nz = row_filled[i];
+            int nzr = csr->IRP[i + 1] - csr->IRP[i];
+            if (nzr > max_nz) max_nz = nzr;
         }
 
         int size = rows_in_block * max_nz;
@@ -132,12 +47,17 @@ HLLMatrix* load_matrix_market_to_hll(const char* filename) {
             JA[i] = 0;
             AS[i] = 0.0;
         }
+
         for (int i = start; i < end; ++i) {
             int local_row = i - start;
-            for (int j = 0; j < row_filled[i]; ++j) {
+            int row_start = csr->IRP[i];
+            int row_end = csr->IRP[i + 1];
+            int nzr = row_end - row_start;
+
+            for (int j = 0; j < nzr; ++j) {
                 int idx = j * rows_in_block + local_row;
-                JA[idx] = temp_cols[i][j];
-                AS[idx] = temp_vals[i][j];
+                JA[idx] = csr->JA[row_start + j];
+                AS[idx] = csr->AS[row_start + j];
             }
         }
 
@@ -146,14 +66,6 @@ HLLMatrix* load_matrix_market_to_hll(const char* filename) {
         hll->blocks[b].JA = JA;
         hll->blocks[b].AS = AS;
     }
-
-    for (int i = 0; i < M; ++i) {
-        free(temp_cols[i]);
-        free(temp_vals[i]);
-    }
-    free(temp_cols);
-    free(temp_vals);
-    free(row_filled);
 
     return hll;
 }
