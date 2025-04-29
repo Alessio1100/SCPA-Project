@@ -20,6 +20,6 @@ typedef struct {
 void free_hll_matrix(HLLMatrix* hll);
 
 // Funzione per caricare una matrice .mtx in formato HLL column-major
-HLLMatrix* load_matrix_market_to_hll_column_major(const char* filename);
+HLLMatrix* convert_csr_to_hll(const CSRMatrix* csr);
 
 #endif // HLL_MATRIX_H

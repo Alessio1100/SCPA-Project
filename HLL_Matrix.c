@@ -3,6 +3,8 @@
 #include "include/CSR_Matrix.h"
 #include "include/HLL_Matrix.h"
 
+#define HACKSIZE 32
+
 static inline void safe_malloc_check(void* ptr, const char* msg) {
     if (!ptr) {
         perror(msg);
@@ -10,24 +12,24 @@ static inline void safe_malloc_check(void* ptr, const char* msg) {
     }
 }
 
-HLLMatrix* convert_csr_to_hll(const CSRMatrix* csr, int hacksize) {
+HLLMatrix* convert_csr_to_hll(const CSRMatrix* csr) {
     int M = csr->M;
     int N = csr->N;
-    int num_blocks = (M + hacksize - 1) / hacksize;
+    int num_blocks = (M + HACKSIZE - 1) / HACKSIZE;
 
     HLLMatrix* hll = malloc(sizeof(HLLMatrix));
     safe_malloc_check(hll, "malloc HLLMatrix");
 
     hll->M = M;
     hll->N = N;
-    hll->HackSize = hacksize;
+    hll->HackSize = HACKSIZE;
     hll->num_blocks = num_blocks;
     hll->blocks = malloc(num_blocks * sizeof(HLLBlock));
     safe_malloc_check(hll->blocks, "malloc HLL blocks");
 
     for (int b = 0; b < num_blocks; ++b) {
-        int start = b * hacksize;
-        int end = (b + 1) * hacksize;
+        int start = b * HACKSIZE;
+        int end = (b + 1) * HACKSIZE;
         if (end > M) end = M;
         int rows_in_block = end - start;
 

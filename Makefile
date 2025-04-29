@@ -8,7 +8,7 @@ CC = gcc
 CFLAGS = -Wall -O2
 
 # File oggetto da costruire
-OBJS = main.o CSR_Matrix.o verify.o mmio.o
+OBJS = main.o CSR_Matrix.o verify.o mmio.o HLL_Matrix.o
 
 # Compilazione target principale
 $(TARGET): $(OBJS)
@@ -16,7 +16,7 @@ $(TARGET): $(OBJS)
 
 # Regola generale per i file .c (escluso mmio.c)
 %.o: %.c
-	@if [ "$<" != "mmio.c" ]; then \
+	if [ "$<" != "mmio.c" ]; then \
 		$(CC) $(CFLAGS) -c -o $@ $<; \
 	fi
 
