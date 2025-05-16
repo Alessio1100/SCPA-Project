@@ -11,6 +11,7 @@ static inline void safe_malloc_check(void* ptr, const char* msg) {
 }
 
 CSRMatrix* load_matrix_market_to_csr(const char* filename) {
+    
     FILE* f = fopen(filename, "r");
     if (!f) {
         perror("Error opening file");
